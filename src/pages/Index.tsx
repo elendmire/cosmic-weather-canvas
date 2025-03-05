@@ -1,13 +1,46 @@
-// Update this page (the content is just a fallback if you fail to update the page)
 
-const Index = () => {
+import React, { useEffect, useState } from 'react';
+import { GlobeProvider } from '@/context/GlobeContext';
+import Globe from '@/components/Globe';
+import Controls from '@/components/Controls';
+import InfoPanel from '@/components/InfoPanel';
+import Header from '@/components/Header';
+import Footer from '@/components/Footer';
+import { toast } from '@/components/ui/use-toast';
+
+const Index: React.FC = () => {
+  const [showInfo, setShowInfo] = useState(false);
+  
+  useEffect(() => {
+    // Welcome toast notification
+    setTimeout(() => {
+      toast({
+        title: 'Welcome to Earth Visualization',
+        description: 'Explore global weather patterns in real-time. Drag to rotate the globe.',
+        duration: 5000,
+      });
+    }, 1000);
+    
+    // Show info panel after a delay
+    const infoTimer = setTimeout(() => {
+      setShowInfo(true);
+    }, 2000);
+    
+    return () => {
+      clearTimeout(infoTimer);
+    };
+  }, []);
+  
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">Start building your amazing project here!</p>
+    <GlobeProvider>
+      <div className="min-h-screen overflow-hidden relative">
+        <Globe />
+        <Header />
+        <Controls />
+        {showInfo && <InfoPanel />}
+        <Footer />
       </div>
-    </div>
+    </GlobeProvider>
   );
 };
 
