@@ -16,12 +16,15 @@ const Globe: React.FC = () => {
   const { dataType, rotating, selectedLocation } = useGlobe();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [renderer, setRenderer] = useState<THREE.WebGLRenderer | null>(null);
+  const [scene, setScene] = useState<THREE.Scene | null>(null);
   
   useEffect(() => {
     if (!containerRef.current) return;
     
     // Create scene
-    const scene = new THREE.Scene();
+    const newScene = new THREE.Scene();
+    setScene(newScene);
     
     // Create camera
     const camera = new THREE.PerspectiveCamera(
@@ -33,17 +36,18 @@ const Globe: React.FC = () => {
     camera.position.z = CAMERA_DISTANCE;
     
     // Create renderer
-    const renderer = new THREE.WebGLRenderer({ 
+    const newRenderer = new THREE.WebGLRenderer({ 
       antialias: true,
       alpha: true
     });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    newRenderer.setSize(window.innerWidth, window.innerHeight);
+    newRenderer.setPixelRatio(window.devicePixelRatio);
     containerRef.current.innerHTML = '';
-    containerRef.current.appendChild(renderer.domElement);
+    containerRef.current.appendChild(newRenderer.domElement);
+    setRenderer(newRenderer);
     
     // Add controls
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, newRenderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.minDistance = GLOBE_RADIUS * 1.3;
@@ -53,81 +57,118 @@ const Globe: React.FC = () => {
     
     // Add lighting
     const ambientLight = new THREE.AmbientLight(0x404040, 1);
-    scene.add(ambientLight);
+    newScene.add(ambientLight);
     
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
     directionalLight.position.set(1, 1, 1);
-    scene.add(directionalLight);
+    newScene.add(directionalLight);
     
     // Add stars
     const stars = createStars();
-    scene.add(stars);
+    newScene.add(stars);
     
-    // Add globe
-    const globe = createGlobe();
-    scene.add(globe);
+    // Create Earth globe with promise to track loading
+    const textureLoader = new THREE.TextureLoader();
     
-    // Add atmosphere
-    const atmosphere = createAtmosphere();
-    scene.add(atmosphere);
+    // Track texture loading progress
+    let loadedTextures = 0;
+    const totalTextures = 3; // Map, bump, and specular maps
     
-    // Add wind particles
-    const particles = createWindParticles(2000);
-    scene.add(particles);
-    
-    // Handle window resize
-    const handleResize = () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    };
-    
-    window.addEventListener('resize', handleResize);
-    
-    // Animation loop
-    let animationFrameId: number;
-    let lastTime = 0;
-    
-    const animate = (time: number) => {
-      animationFrameId = requestAnimationFrame(animate);
-      
-      if (rotating) {
-        globe.rotation.y += 0.0005;
-        atmosphere.rotation.y += 0.0005;
-      }
-      
-      // Animate particles based on data type
-      animateWindParticles(particles, time);
-      
-      controls.update();
-      renderer.render(scene, camera);
-      
-      // Set loading to false after first render
-      if (isLoading) {
+    const onTextureProgress = () => {
+      loadedTextures++;
+      if (loadedTextures === totalTextures) {
         setIsLoading(false);
       }
     };
     
-    animate(0);
+    // Load textures
+    Promise.all([
+      new Promise<THREE.Texture>((resolve) => 
+        textureLoader.load('/earth-blue-marble.jpg', (texture) => {
+          onTextureProgress();
+          resolve(texture);
+        })
+      ),
+      new Promise<THREE.Texture>((resolve) => 
+        textureLoader.load('/earth-topology.jpg', (texture) => {
+          onTextureProgress();
+          resolve(texture);
+        })
+      ),
+      new Promise<THREE.Texture>((resolve) => 
+        textureLoader.load('/earth-specular.jpg', (texture) => {
+          onTextureProgress();
+          resolve(texture);
+        })
+      )
+    ]).then(([mapTexture, bumpTexture, specularTexture]) => {
+      // Create the globe with loaded textures
+      const globe = createGlobe(mapTexture, bumpTexture, specularTexture);
+      newScene.add(globe);
+      
+      // Add atmosphere
+      const atmosphere = createAtmosphere();
+      newScene.add(atmosphere);
+      
+      // Add wind particles
+      const particles = createWindParticles(2000);
+      newScene.add(particles);
+      
+      // Animation loop
+      let animationFrameId: number;
+      
+      const animate = (time: number) => {
+        animationFrameId = requestAnimationFrame(animate);
+        
+        if (rotating) {
+          globe.rotation.y += 0.0005;
+          atmosphere.rotation.y += 0.0005;
+        }
+        
+        // Animate particles
+        animateWindParticles(particles, time);
+        
+        controls.update();
+        newRenderer.render(newScene, camera);
+      };
+      
+      animate(0);
+      
+      // Handle window resize
+      const handleResize = () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        newRenderer.setSize(window.innerWidth, window.innerHeight);
+      };
+      
+      window.addEventListener('resize', handleResize);
+      
+      // Cleanup function
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        cancelAnimationFrame(animationFrameId);
+        
+        // Dispose resources
+        globe.geometry.dispose();
+        (globe.material as THREE.Material).dispose();
+        atmosphere.geometry.dispose();
+        (atmosphere.material as THREE.Material).dispose();
+        particles.geometry.dispose();
+        (particles.material as THREE.Material).dispose();
+      };
+    });
     
-    // Cleanup
+    // Return cleanup function
     return () => {
-      window.removeEventListener('resize', handleResize);
-      cancelAnimationFrame(animationFrameId);
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
       }
       
-      // Dispose resources
-      renderer.dispose();
-      globe.geometry.dispose();
-      (globe.material as THREE.Material).dispose();
-      atmosphere.geometry.dispose();
-      (atmosphere.material as THREE.Material).dispose();
-      particles.geometry.dispose();
-      (particles.material as THREE.Material).dispose();
+      if (newRenderer) {
+        newRenderer.dispose();
+      }
     };
-  }, [dataType, rotating, selectedLocation]);
+  }, [dataType, rotating]);
   
   return (
     <div className="absolute inset-0 z-0">

@@ -1,13 +1,18 @@
+
 import * as THREE from 'three';
 import { GLOBE_RADIUS } from './constants';
 
-export function createGlobe(): THREE.Mesh {
+export function createGlobe(
+  mapTexture?: THREE.Texture,
+  bumpMapTexture?: THREE.Texture,
+  specularMapTexture?: THREE.Texture
+): THREE.Mesh {
   const globeGeometry = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
   const globeMaterial = new THREE.MeshPhongMaterial({
-    map: new THREE.TextureLoader().load('/earth-blue-marble.jpg'),
-    bumpMap: new THREE.TextureLoader().load('/earth-topology.jpg'),
+    map: mapTexture || new THREE.TextureLoader().load('/earth-blue-marble.jpg'),
+    bumpMap: bumpMapTexture || new THREE.TextureLoader().load('/earth-topology.jpg'),
     bumpScale: 0.5,
-    specularMap: new THREE.TextureLoader().load('/earth-specular.jpg'),
+    specularMap: specularMapTexture || new THREE.TextureLoader().load('/earth-specular.jpg'),
     specular: new THREE.Color(0x333333),
     shininess: 5,
     transparent: true,
