@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useGlobe } from '@/context/GlobeContext';
 import { CAMERA_DISTANCE, GLOBE_RADIUS } from '@/lib/constants';
 import { 

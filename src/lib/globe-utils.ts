@@ -105,9 +105,11 @@ export function createWindParticles(count: number): THREE.Points {
 }
 
 export function animateWindParticles(particles: THREE.Points, time: number): void {
-  const positions = particles.geometry.attributes.position.array;
+  const positionsAttribute = particles.geometry.getAttribute('position');
+  const positions = positionsAttribute.array;
   
   for (let i = 0; i < positions.length; i += 3) {
+    // Need to create a copy of the values since the original array is read-only
     const x = positions[i];
     const y = positions[i + 1];
     const z = positions[i + 2];
@@ -121,23 +123,29 @@ export function animateWindParticles(particles: THREE.Points, time: number): voi
     const windY = Math.cos(lat * Math.PI / 180 + time * 0.0005) * 0.1;
     const windZ = Math.sin(lat * Math.PI / 180 + time * 0.0005) * 0.1;
     
-    positions[i] += windX;
-    positions[i + 1] += windY;
-    positions[i + 2] += windZ;
+    // Create a new Vector3 for the updated position
+    const newX = x + windX;
+    const newY = y + windY;
+    const newZ = z + windZ;
+    
+    // Update the positions array with new values
+    positionsAttribute.setXYZ(i / 3, newX, newY, newZ);
     
     // Keep particles near globe surface
-    const newPosition = new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]);
+    const newPosition = new THREE.Vector3(newX, newY, newZ);
     const length = newPosition.length();
     
     if (length < GLOBE_RADIUS * 1.01 || length > GLOBE_RADIUS * 1.1) {
       const phi = Math.random() * Math.PI * 2;
       const theta = Math.random() * Math.PI;
       
-      positions[i] = GLOBE_RADIUS * Math.sin(theta) * Math.cos(phi) * 1.05;
-      positions[i + 1] = GLOBE_RADIUS * Math.sin(theta) * Math.sin(phi) * 1.05;
-      positions[i + 2] = GLOBE_RADIUS * Math.cos(theta) * 1.05;
+      const resetX = GLOBE_RADIUS * Math.sin(theta) * Math.cos(phi) * 1.05;
+      const resetY = GLOBE_RADIUS * Math.sin(theta) * Math.sin(phi) * 1.05;
+      const resetZ = GLOBE_RADIUS * Math.cos(theta) * 1.05;
+      
+      positionsAttribute.setXYZ(i / 3, resetX, resetY, resetZ);
     }
   }
   
-  particles.geometry.attributes.position.needsUpdate = true;
+  positionsAttribute.needsUpdate = true;
 }
