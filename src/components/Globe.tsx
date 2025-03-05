@@ -16,15 +16,16 @@ const Globe: React.FC = () => {
   const { dataType, rotating, selectedLocation } = useGlobe();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [renderer, setRenderer] = useState<THREE.WebGLRenderer | null>(null);
-  const [scene, setScene] = useState<THREE.Scene | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const animationFrameIdRef = useRef<number | null>(null);
   
   useEffect(() => {
     if (!containerRef.current) return;
     
     // Create scene
     const newScene = new THREE.Scene();
-    setScene(newScene);
+    sceneRef.current = newScene;
     
     // Create camera
     const camera = new THREE.PerspectiveCamera(
@@ -44,7 +45,7 @@ const Globe: React.FC = () => {
     newRenderer.setPixelRatio(window.devicePixelRatio);
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(newRenderer.domElement);
-    setRenderer(newRenderer);
+    rendererRef.current = newRenderer;
     
     // Add controls
     const controls = new OrbitControls(camera, newRenderer.domElement);
@@ -67,105 +68,171 @@ const Globe: React.FC = () => {
     const stars = createStars();
     newScene.add(stars);
     
-    // Create Earth globe with promise to track loading
+    // Create Earth globe
     const textureLoader = new THREE.TextureLoader();
     
-    // Track texture loading progress
-    let loadedTextures = 0;
-    const totalTextures = 3; // Map, bump, and specular maps
+    // Load textures with proper error handling
+    const mapTexturePromise = new Promise<THREE.Texture>((resolve, reject) => {
+      textureLoader.load(
+        '/earth-blue-marble.jpg', 
+        resolve,
+        undefined, // onProgress is optional
+        (error) => {
+          console.error('Error loading map texture:', error);
+          reject(error);
+        }
+      );
+    });
     
-    const onTextureProgress = () => {
-      loadedTextures++;
-      if (loadedTextures === totalTextures) {
-        setIsLoading(false);
-      }
-    };
+    const bumpTexturePromise = new Promise<THREE.Texture>((resolve, reject) => {
+      textureLoader.load(
+        '/earth-topology.jpg', 
+        resolve,
+        undefined,
+        (error) => {
+          console.error('Error loading bump texture:', error);
+          reject(error);
+        }
+      );
+    });
     
-    // Load textures
-    Promise.all([
-      new Promise<THREE.Texture>((resolve) => 
-        textureLoader.load('/earth-blue-marble.jpg', (texture) => {
-          onTextureProgress();
-          resolve(texture);
-        })
-      ),
-      new Promise<THREE.Texture>((resolve) => 
-        textureLoader.load('/earth-topology.jpg', (texture) => {
-          onTextureProgress();
-          resolve(texture);
-        })
-      ),
-      new Promise<THREE.Texture>((resolve) => 
-        textureLoader.load('/earth-specular.jpg', (texture) => {
-          onTextureProgress();
-          resolve(texture);
-        })
-      )
-    ]).then(([mapTexture, bumpTexture, specularTexture]) => {
-      // Create the globe with loaded textures
-      const globe = createGlobe(mapTexture, bumpTexture, specularTexture);
-      newScene.add(globe);
-      
-      // Add atmosphere
-      const atmosphere = createAtmosphere();
-      newScene.add(atmosphere);
-      
-      // Add wind particles
-      const particles = createWindParticles(2000);
-      newScene.add(particles);
-      
-      // Animation loop
-      let animationFrameId: number;
-      
-      const animate = (time: number) => {
-        animationFrameId = requestAnimationFrame(animate);
+    const specularTexturePromise = new Promise<THREE.Texture>((resolve, reject) => {
+      textureLoader.load(
+        '/earth-specular.jpg', 
+        resolve,
+        undefined,
+        (error) => {
+          console.error('Error loading specular texture:', error);
+          reject(error);
+        }
+      );
+    });
+    
+    // Create a default globe immediately to show something while textures load
+    const defaultGlobe = createGlobe();
+    newScene.add(defaultGlobe);
+    
+    const atmosphere = createAtmosphere();
+    newScene.add(atmosphere);
+    
+    // Start animation immediately with the default globe
+    const animate = (time: number) => {
+      if (sceneRef.current && rendererRef.current) {
+        animationFrameIdRef.current = requestAnimationFrame(animate);
         
-        if (rotating) {
-          globe.rotation.y += 0.0005;
+        if (rotating && defaultGlobe) {
+          defaultGlobe.rotation.y += 0.0005;
           atmosphere.rotation.y += 0.0005;
         }
         
-        // Animate particles
-        animateWindParticles(particles, time);
+        if (particles) {
+          animateWindParticles(particles, time);
+        }
         
         controls.update();
-        newRenderer.render(newScene, camera);
-      };
-      
-      animate(0);
-      
-      // Handle window resize
-      const handleResize = () => {
+        rendererRef.current.render(sceneRef.current, camera);
+      }
+    };
+    
+    // Create wind particles
+    const particles = createWindParticles(2000);
+    newScene.add(particles);
+    
+    // Start animation
+    animate(0);
+    
+    // Load high-quality textures in the background
+    Promise.all([mapTexturePromise, bumpTexturePromise, specularTexturePromise])
+      .then(([mapTexture, bumpTexture, specularTexture]) => {
+        // Remove default globe
+        if (defaultGlobe) {
+          newScene.remove(defaultGlobe);
+          defaultGlobe.geometry.dispose();
+          (defaultGlobe.material as THREE.Material).dispose();
+        }
+        
+        // Create high-quality globe
+        const highQualityGlobe = createGlobe(mapTexture, bumpTexture, specularTexture);
+        newScene.add(highQualityGlobe);
+        
+        // Update animation
+        const animateWithHighQuality = (time: number) => {
+          if (sceneRef.current && rendererRef.current) {
+            animationFrameIdRef.current = requestAnimationFrame(animateWithHighQuality);
+            
+            if (rotating) {
+              highQualityGlobe.rotation.y += 0.0005;
+              atmosphere.rotation.y += 0.0005;
+            }
+            
+            if (particles) {
+              animateWindParticles(particles, time);
+            }
+            
+            controls.update();
+            rendererRef.current.render(sceneRef.current, camera);
+          }
+        };
+        
+        // Cancel previous animation
+        if (animationFrameIdRef.current !== null) {
+          cancelAnimationFrame(animationFrameIdRef.current);
+        }
+        
+        // Start new animation
+        animateWithHighQuality(0);
+        
+        // Set loading to false
+        setIsLoading(false);
+      })
+      .catch(error => {
+        console.error('Error loading textures:', error);
+        // Even if high-quality textures fail, we've already got a default globe showing
+        setIsLoading(false);
+      });
+    
+    // Handle window resize
+    const handleResize = () => {
+      if (rendererRef.current) {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
-        newRenderer.setSize(window.innerWidth, window.innerHeight);
-      };
-      
-      window.addEventListener('resize', handleResize);
-      
-      // Cleanup function
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        cancelAnimationFrame(animationFrameId);
-        
-        // Dispose resources
-        globe.geometry.dispose();
-        (globe.material as THREE.Material).dispose();
-        atmosphere.geometry.dispose();
-        (atmosphere.material as THREE.Material).dispose();
-        particles.geometry.dispose();
-        (particles.material as THREE.Material).dispose();
-      };
-    });
+        rendererRef.current.setSize(window.innerWidth, window.innerHeight);
+      }
+    };
     
-    // Return cleanup function
+    window.addEventListener('resize', handleResize);
+    
+    // Cleanup function
     return () => {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
+      window.removeEventListener('resize', handleResize);
+      
+      if (animationFrameIdRef.current !== null) {
+        cancelAnimationFrame(animationFrameIdRef.current);
       }
       
-      if (newRenderer) {
-        newRenderer.dispose();
+      // Clean up resources
+      if (rendererRef.current) {
+        rendererRef.current.dispose();
+      }
+      
+      if (defaultGlobe) {
+        defaultGlobe.geometry.dispose();
+        (defaultGlobe.material as THREE.Material).dispose();
+      }
+      
+      if (atmosphere) {
+        atmosphere.geometry.dispose();
+        (atmosphere.material as THREE.Material).dispose();
+      }
+      
+      if (particles) {
+        particles.geometry.dispose();
+        (particles.material as THREE.Material).dispose();
+      }
+      
+      if (stars) {
+        stars.geometry.dispose();
+        (stars.material as THREE.Material).dispose();
       }
     };
   }, [dataType, rotating]);
@@ -183,7 +250,7 @@ const Globe: React.FC = () => {
       <div 
         ref={containerRef} 
         className="w-full h-full transition-opacity duration-1000"
-        style={{ opacity: isLoading ? 0 : 1 }}
+        style={{ opacity: isLoading ? 0.5 : 1 }}
       />
     </div>
   );

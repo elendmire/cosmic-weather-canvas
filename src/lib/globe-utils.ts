@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { GLOBE_RADIUS } from './constants';
 
@@ -8,11 +7,23 @@ export function createGlobe(
   specularMapTexture?: THREE.Texture
 ): THREE.Mesh {
   const globeGeometry = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
+  
+  // Create a simple material if no textures are provided
+  if (!mapTexture && !bumpMapTexture && !specularMapTexture) {
+    const simpleMaterial = new THREE.MeshPhongMaterial({
+      color: 0x2233ff,
+      transparent: true,
+      opacity: 0.9,
+    });
+    return new THREE.Mesh(globeGeometry, simpleMaterial);
+  }
+  
+  // Create full material with provided textures
   const globeMaterial = new THREE.MeshPhongMaterial({
-    map: mapTexture || new THREE.TextureLoader().load('/earth-blue-marble.jpg'),
-    bumpMap: bumpMapTexture || new THREE.TextureLoader().load('/earth-topology.jpg'),
+    map: mapTexture,
+    bumpMap: bumpMapTexture,
     bumpScale: 0.5,
-    specularMap: specularMapTexture || new THREE.TextureLoader().load('/earth-specular.jpg'),
+    specularMap: specularMapTexture,
     specular: new THREE.Color(0x333333),
     shininess: 5,
     transparent: true,
@@ -110,47 +121,51 @@ export function createWindParticles(count: number): THREE.Points {
 }
 
 export function animateWindParticles(particles: THREE.Points, time: number): void {
-  const positionsAttribute = particles.geometry.getAttribute('position');
-  const positions = positionsAttribute.array;
+  const positionAttribute = particles.geometry.getAttribute('position') as THREE.BufferAttribute;
   
-  for (let i = 0; i < positions.length; i += 3) {
-    // Need to create a copy of the values since the original array is read-only
-    const x = positions[i];
-    const y = positions[i + 1];
-    const z = positions[i + 2];
+  // Make a copy of the positions to work with
+  const positions = positionAttribute.array as Float32Array;
+  const count = positions.length / 3;
+  
+  for (let i = 0; i < count; i++) {
+    const ix = i * 3;
+    const iy = i * 3 + 1;
+    const iz = i * 3 + 2;
     
-    // Calculate lat/long
+    // Get current position
+    const x = positions[ix];
+    const y = positions[iy];
+    const z = positions[iz];
+    
+    // Calculate current position vector
     const position = new THREE.Vector3(x, y, z);
     const { lat, lon } = vector3ToLatLong(position);
     
-    // Apply wind based on lat/long (simplified)
+    // Apply wind movement
     const windX = Math.sin(lon * Math.PI / 180 + time * 0.0005) * 0.1;
     const windY = Math.cos(lat * Math.PI / 180 + time * 0.0005) * 0.1;
     const windZ = Math.sin(lat * Math.PI / 180 + time * 0.0005) * 0.1;
     
-    // Create a new Vector3 for the updated position
-    const newX = x + windX;
-    const newY = y + windY;
-    const newZ = z + windZ;
-    
-    // Update the positions array with new values
-    positionsAttribute.setXYZ(i / 3, newX, newY, newZ);
+    // Update position
+    positions[ix] += windX;
+    positions[iy] += windY;
+    positions[iz] += windZ;
     
     // Keep particles near globe surface
-    const newPosition = new THREE.Vector3(newX, newY, newZ);
+    const newPosition = new THREE.Vector3(positions[ix], positions[iy], positions[iz]);
     const length = newPosition.length();
     
     if (length < GLOBE_RADIUS * 1.01 || length > GLOBE_RADIUS * 1.1) {
+      // Reset particle to a new random position on the globe surface
       const phi = Math.random() * Math.PI * 2;
       const theta = Math.random() * Math.PI;
       
-      const resetX = GLOBE_RADIUS * Math.sin(theta) * Math.cos(phi) * 1.05;
-      const resetY = GLOBE_RADIUS * Math.sin(theta) * Math.sin(phi) * 1.05;
-      const resetZ = GLOBE_RADIUS * Math.cos(theta) * 1.05;
-      
-      positionsAttribute.setXYZ(i / 3, resetX, resetY, resetZ);
+      positions[ix] = GLOBE_RADIUS * Math.sin(theta) * Math.cos(phi) * 1.05;
+      positions[iy] = GLOBE_RADIUS * Math.sin(theta) * Math.sin(phi) * 1.05;
+      positions[iz] = GLOBE_RADIUS * Math.cos(theta) * 1.05;
     }
   }
   
-  positionsAttribute.needsUpdate = true;
+  // Mark the attribute as needing an update
+  positionAttribute.needsUpdate = true;
 }
